@@ -1,38 +1,20 @@
+require("./mongo");
 const express = require("express");
+// CON EXPRESS
+const app = express();
 const cors = require("cors");
 // const http = require("http") // CommomJs
 // import http from "http" - ECMAS6 AHROA TIENE SOPORTE PARA IMPORTAR ESTOS MODULOS
-
-// CON EXPRESS
-const app = express();
-const logger = require("./loggerMiddleware");
+const Note = require("./models/Note");
+const notFound = require("./middleware/notFound");
+const handleErrors = require("./middleware/handleErrors");
 
 app.use(cors());
 app.use(express.json());
 
 //middleware : funcion que intercepta la peticion que esta pasando por nuestra api
-app.use(logger);
+// app.use(logger);
 
-let notes = [
-  {
-    id: 1,
-    content: "HTML is easy",
-    date: "2019-05-30T17:30:31.098Z",
-    important: true,
-  },
-  {
-    id: 2,
-    content: "Browser can execute only Javascript",
-    date: "2019-05-30T18:39:34.091Z",
-    important: false,
-  },
-  {
-    id: 3,
-    content: "GET and POST are the most important methods of HTTP protocol",
-    date: "2019-05-30T19:20:14.298Z",
-    important: true,
-  },
-];
 // CON NODE JS
 // const app = http.createServer((request, response) => {
 //   response.writeHead(200, { "Content-Type": "application/json" });
@@ -44,62 +26,70 @@ app.get("/", (request, response) => {
 });
 
 app.get("/api/notes", (request, response) => {
-  response.json(notes);
+  Note.find({}).then((notes) => {
+    response.json(notes);
+  });
 });
 
-app.get("/api/notes/:id", (request, response) => {
-  const id = Number(request.params.id);
+app.get("/api/notes/:id", (request, response, next) => {
+  const { id } = request.params;
   //   console.log(request.params);
-  const note = notes.find((note) => note.id === id);
-  //   console.log({ note });
-
-  if (note) {
-    response.json(note);
-  } else {
-    response.status(404).end();
-  }
+  Note.findById(id)
+    .then((note) => {
+      note ? response.json(note) : response.status(404).end();
+    })
+    .catch((err) => {
+      next(err);
+    });
 });
 
-app.delete("/api/notes/:id", (request, response) => {
-  const id = Number(request.params.id);
-  //   console.log(request.params);
-  notes = notes.filter((note) => note.id !== id);
-  console.log({ note });
+app.put("/api/notes/:id", (request, response, next) => {
+  const { id } = request.params;
+  const note = request.body;
 
-  response.status(204).end();
+  const newNoteInfo = {
+    content: note.content,
+    important: note.important,
+  };
+
+  Note.findByIdAndUpdate(id, newNoteInfo, { new: true }).then((result) => {
+    response.json(result);
+  });
+});
+
+app.delete("/api/notes/:id", (request, response, next) => {
+  const { id } = request.params;
+  //   console.log(request.params);
+
+  Note.findByIdAndRemove(id)
+    .then(() => {
+      response.status(204).end();
+    })
+    .catch((err) => next(err));
 });
 
 app.post("/api/notes", (request, response) => {
   const note = request.body;
 
-  if (!note || !note.content) {
+  if (!note.content) {
     return response.status(400).json({
-      error: "note.content is missing",
+      error: "required content field is missing",
     });
   }
 
-  const ids = notes.map((note) => note.id);
-  const maxId = Math.max(...ids);
-
-  const newNote = {
-    id: maxId + 1,
+  const newNote = new Note({
     content: note.content,
-    import: typeof note.important !== "undefined" ? note.important : false,
-    date: new Date().toISOString(),
-  };
+    date: new Date(),
+    important: note.important || false,
+  });
 
-  notes = [...notes, newNote];
-
-  response.status(201).json(note);
-});
-
-app.use((request, response) => {
-  console.log(request.path);
-  console.log("llegue aca");
-  response.status(404).json({
-    error: "Not Found",
+  newNote.save().then((savedNote) => {
+    response.json(savedNote);
   });
 });
+
+app.use(notFound);
+app.use(handleErrors);
 
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {
